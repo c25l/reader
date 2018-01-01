@@ -100,9 +100,6 @@ func parseConfig(loc string) configuration {
 	if err != nil {
 		log.Fatal(err)
 	}
-	conf.EmailFrom = os.Getenv("EmailFrom")
-	conf.EmailTo = os.Getenv("EmailTo")
-	conf.EmailPass = os.Getenv("EmailPass")
 	return conf
 }
 
