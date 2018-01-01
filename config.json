@@ -3,6 +3,7 @@
 	    {"Site":"http://procedural-generation.tumblr.com/rss"},
 	    {"Site":"http://webcomicname.com/rss", "Tag":"Comics"},
 	    {"Site":"https://smbc-comics.com/rss.php","Tag":"Comics"},
+	    {"Site":"http://www.poorlydrawnlines.com/feed/","Tag":"Comics"},
 	    {"Site":"http://nedroid.com/feed/", "Tag":"Comics"},
 	    {"Site":"http://www.unofficialgoogledatascience.com/atom.xml","Tag":"Science"},
 	    {"Site":"http://tabletopwhale.com/feed","Tag":"Science"}],
