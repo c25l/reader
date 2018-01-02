@@ -49,7 +49,11 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 			continue
 		}
 		tag := xx.Tag
-		feed, _ := fp.ParseURL(xx.Site)
+		feed, err := fp.ParseURL(xx.Site)
+		if err != nil {
+			logger(xx.Site, err)
+			continue
+		}
 		if tag == "" {
 			tag = feed.Title
 		}
