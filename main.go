@@ -65,7 +65,7 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 			if err != nil {
 				localTime, err = time.Parse(time.RFC1123Z, yy.Published)
 				if err != nil {
-					log.Fatal(err)
+					logger(tag, err)
 				}
 			}
 			diff := today.Sub(localTime)
