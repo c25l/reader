@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"net/smtp"
 	"os"
 	"time"
@@ -35,6 +36,33 @@ type configuration struct {
 	Tags                  map[string]int
 }
 
+func request(f *gofeed.Parser, feedURL string) (*gofeed.Feed, error) {
+	client := http.Client{}
+	req, err := http.NewRequest("GET", feedURL, nil)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	req.Header.Set("User-Agent", "Golang_Harvester")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, gofeed.HTTPError{
+			StatusCode: resp.StatusCode,
+			Status:     resp.Status,
+		}
+	}
+
+	return f.Parse(resp.Body)
+}
+
 func decode(feeds []rss, tags map[string]int) map[string][]string {
 	output := make(map[string][]string)
 	fp := gofeed.NewParser()
@@ -49,7 +77,7 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 			continue
 		}
 		tag := xx.Tag
-		feed, err := fp.ParseURL(xx.Site)
+		feed, err := request(fp, xx.Site)
 		if err != nil {
 			logger(xx.Site, err)
 			continue
@@ -60,16 +88,25 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 		if _, ok := output[tag]; !ok {
 			output[tag] = make([]string, 0)
 		}
+		offset := 0
 		for _, yy := range feed.Items {
 			localTime, err := time.Parse(time.RFC1123, yy.Published)
+			useDate := true
 			if err != nil {
 				localTime, err = time.Parse(time.RFC1123Z, yy.Published)
 				if err != nil {
-					logger(tag, err)
+					useDate = false
 				}
 			}
 			diff := today.Sub(localTime)
-			if diff <= time.Duration(float64(duration)*1.1*60*60*24)*time.Second {
+			offset++
+			condition := false
+			if useDate {
+				condition = diff <= time.Duration(float64(duration)*1.1*60*60*24)*time.Second
+			} else {
+				condition = offset < 20
+			}
+			if condition {
 				output[tag] = append(output[tag], fmt.Sprintf("<a href=\"%s\">%s</a><br>%s<br><br>\n", yy.Link, yy.Title, yy.Description))
 			}
 		}
