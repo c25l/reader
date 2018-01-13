@@ -43,7 +43,7 @@ func request(f *gofeed.Parser, feedURL string) (*gofeed.Feed, error) {
 		log.Fatalln(err)
 	}
 
-	req.Header.Set("User-Agent", "Golang_Harvester")
+	req.Header.Set("User-Agent", "Golang_Bugwilla")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -191,7 +191,7 @@ func logger(args ...interface{}) {
 func main() {
 	config := flag.String("config", "config.json", "config location")
 	flag.Parse()
-	logger("harvester starting at", time.Now().String())
+	logger("bugwilla starting at", time.Now().String())
 	conf := parseConfig(*config)
 	kvs := decode(conf.Rss, conf.Tags)
 	if conf.TwitterAccessSecret != "" {
@@ -199,7 +199,7 @@ func main() {
 			conf.TwitterAccessToken, conf.TwitterAccessSecret)
 		kvs["twitter"] = twitter
 	}
-	kvs["harvester runlog"] = []string{OutLog}
+	kvs["bugwilla runlog"] = []string{OutLog}
 	sendEmail(conf.EmailFrom, conf.EmailTo, conf.EmailPass, kvs)
 
 }
