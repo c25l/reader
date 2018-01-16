@@ -20,8 +20,9 @@ var (
 )
 
 type rss struct {
-	Site string
-	Tag  string
+	Site  string
+	Tag   string
+	Limit int
 }
 
 type configuration struct {
@@ -89,7 +90,12 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 			output[tag] = make([]string, 0)
 		}
 		offset := 0
-		for _, yy := range feed.Items {
+		items := len(feed.Items)
+		if (xx.Limit != 0) && (xx.Limit < items) {
+			items = xx.Limit
+		}
+		for ii := 0; ii < items; ii++ {
+			yy := feed.Items[ii]
 			localTime, err := time.Parse(time.RFC1123, yy.Published)
 			useDate := true
 			if err != nil {
@@ -106,8 +112,12 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 			} else {
 				condition = offset < 20
 			}
+			usetext := yy.Description
+			if len(usetext) > 2000 {
+				usetext = usetext[:1000]
+			}
 			if condition {
-				output[tag] = append(output[tag], fmt.Sprintf("<a href=\"%s\">%s</a><br>%s<br><br>\n", yy.Link, yy.Title, yy.Description))
+				output[tag] = append(output[tag], fmt.Sprintf("<a href=\"%s\">%s</a><br>%s<br><br>\n", yy.Link, yy.Title, usetext))
 			}
 		}
 		logger(fmt.Sprintf("Feed %s found %d items", feed.Title, len(output[tag])))
