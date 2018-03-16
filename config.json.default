@@ -1,7 +1,5 @@
 {
-"EmailTo":"",
-"EmailFrom":"",
-"EmailPass":"",
+"OutputPath":"./output.org",
 "TwitterConsumerKey":"",
 "TwitterConsumerSecret":"",
 "TwitterAccessToken":"",

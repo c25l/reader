@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/smtp"
 	"os"
+	"regexp"
 	"time"
+	
 
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/dghubble/oauth1"
@@ -16,7 +17,7 @@ import (
 )
 
 var (
-	OutLog = ""
+	OutLog = "** Run Log\n"
 )
 
 type rss struct {
@@ -26,9 +27,7 @@ type rss struct {
 }
 
 type configuration struct {
-	EmailTo               string
-	EmailFrom             string
-	EmailPass             string
+	OutputPath string
 	TwitterConsumerKey    string
 	TwitterConsumerSecret string
 	TwitterAccessToken    string
@@ -64,8 +63,27 @@ func request(f *gofeed.Parser, feedURL string) (*gofeed.Feed, error) {
 	return f.Parse(resp.Body)
 }
 
+func TokenReplacer(in []byte) (out []byte) {
+	if len(in)<4 {
+		return
+	}
+	if (in[1] ==  'a') && (in[2] == ' '){
+		return in
+	}
+	if (in[1] == '/') && (in[2] == 'a') && (len(in)==4) {
+		return in
+	}
+	return 
+}
+
+
 func decode(feeds []rss, tags map[string]int) map[string][]string {
 	output := make(map[string][]string)
+	brackets,_:=regexp.Compile(`[\[\]]*`)
+	links,_ := regexp.Compile(`<a href="([^">]*)">([^<]*)</a>`)
+	quotes,_:= regexp.Compile(`<blockquote>(.*)</blockquote>`)
+	tokens,_:= regexp.Compile(`<[^>]*>`)
+
 	fp := gofeed.NewParser()
 	today := time.Now()
 	for _, xx := range feeds {
@@ -94,6 +112,9 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 		if (xx.Limit != 0) && (xx.Limit < items) {
 			items = xx.Limit
 		}
+		if items > 0 {
+			output[tag] = append(output[tag], fmt.Sprintf("** %s \n", feed.Title))
+		}
 		for ii := 0; ii < items; ii++ {
 			yy := feed.Items[ii]
 			localTime, err := time.Parse(time.RFC1123, yy.Published)
@@ -112,12 +133,13 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 			} else {
 				condition = offset < 20
 			}
-			usetext := yy.Description
-			if len(usetext) > 2000 {
-				usetext = usetext[:1000]
-			}
+			usetext := brackets.ReplaceAll([]byte(yy.Description), []byte(""))
+			usetext = tokens.ReplaceAllFunc(usetext, TokenReplacer)
+
+			usetext = links.ReplaceAll(usetext, []byte(`[[$1][$2]]`))
+			usetext = quotes.ReplaceAll(usetext, []byte("\n#+BEGIN_QUOTE\n$1\n#+END_QUOTE\n"))
 			if condition {
-				output[tag] = append(output[tag], fmt.Sprintf("<a href=\"%s\">%s</a><br>%s<br><br>\n", yy.Link, yy.Title, usetext))
+			 	output[tag] = append(output[tag], fmt.Sprintf("*** TODO [[%s][%s]]\n%s\n", yy.Link, yy.Title, usetext))
 			}
 		}
 		logger(fmt.Sprintf("Feed %s found %d items", feed.Title, len(output[tag])))
@@ -143,40 +165,18 @@ func pullTwitter(ck, cs, ak, as string) []string {
 		return output
 	}
 	today := time.Now()
+	if len(tweets) > 0 {
+		output = append(output, "** TODO Twitter \n")
+	}
 	for _, tw := range tweets {
 		ctime, err := tw.CreatedAtTime()
 		if (err == nil) && (today.Sub(ctime) < time.Duration(1.1*60*60*24)*time.Second) {
-			link := fmt.Sprintf("<a href=\"https://twitter.com/%s/status/%s\">%s</a>", tw.User.ScreenName, tw.IDStr, tw.User.Name)
-			output = append(output, fmt.Sprintf("%s : %s <br><br>", link, tw.Text))
+			link := fmt.Sprintf("[[https://twitter.com/%s/status/%s][%s]]", tw.User.ScreenName, tw.IDStr, tw.User.Name)
+			output = append(output, fmt.Sprintf("*** %s : %s \n\n", link, tw.Text))
 		}
 	}
 	logger(fmt.Sprintf("found %d tweets", len(output)))
 	return output
-}
-
-func sendEmail(from, to, pass string, kvs map[string][]string) {
-	auth := smtp.PlainAuth("", from, pass, "smtp.gmail.com")
-	for xx, yy := range kvs {
-		if len(yy) == 0 {
-			continue
-		}
-		msg := "To:  " + to + "\r\n" +
-			"Subject: " + xx + "\r\n" +
-			"MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n" +
-			`<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"` +
-			`"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">  <html><body>`
-
-		for _, zz := range yy {
-			msg = msg + zz + "\n\n"
-		}
-
-		msg = msg + "</body></html>"
-		err := smtp.SendMail("smtp.gmail.com:587", auth, to, []string{to}, []byte(msg))
-		if err != nil {
-			log.Fatal(OutLog, err)
-		}
-
-	}
 }
 
 func parseConfig(loc string) configuration {
@@ -194,14 +194,35 @@ func parseConfig(loc string) configuration {
 	return conf
 }
 
+func emitOrg(kvs map[string][]string, dest string){
+	f, err := os.OpenFile(dest, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	now := time.Now()
+	year, month, day := now.Date()
+	dow :=now.Weekday().String()
+	f.Write([]byte(fmt.Sprintf("* %d-%02d-%02d %s\n", year, int(month), day, dow)))
+	for _, x := range kvs {
+		for _, val := range x {
+			if _, err := f.Write([]byte(val)); err !=nil {
+				log.Fatal(err)
+			}
+		}
+	}
+	if err := f.Close(); err != nil {
+		log.Fatal(err)
+	}
+}
+
 func logger(args ...interface{}) {
-	OutLog = OutLog + fmt.Sprint(args) + "<br>\n"
+	OutLog = OutLog + "*** "+ fmt.Sprint(args) + "\n"
 }
 
 func main() {
 	config := flag.String("config", "config.json", "config location")
 	flag.Parse()
-	logger("bugwilla starting at", time.Now().String())
+	logger("starting at", time.Now().String())
 	conf := parseConfig(*config)
 	kvs := decode(conf.Rss, conf.Tags)
 	if conf.TwitterAccessSecret != "" {
@@ -209,7 +230,6 @@ func main() {
 			conf.TwitterAccessToken, conf.TwitterAccessSecret)
 		kvs["twitter"] = twitter
 	}
-	kvs["bugwilla runlog"] = []string{OutLog}
-	sendEmail(conf.EmailFrom, conf.EmailTo, conf.EmailPass, kvs)
-
+	kvs["runlog"] = []string{OutLog}
+	emitOrg(kvs, conf.OutputPath)
 }
