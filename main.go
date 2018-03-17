@@ -11,8 +11,6 @@ import (
 	"time"
 	
 
-	"github.com/dghubble/go-twitter/twitter"
-	"github.com/dghubble/oauth1"
 	"github.com/mmcdole/gofeed"
 )
 
@@ -22,32 +20,29 @@ var (
 
 type rss struct {
 	Site  string
-	Tag   string
 	Limit int
 }
 
 type configuration struct {
 	OutputPath string
-	TwitterConsumerKey    string
-	TwitterConsumerSecret string
-	TwitterAccessToken    string
-	TwitterAccessSecret   string
 	Rss                   []rss
-	Tags                  map[string]int
 }
 
 func request(f *gofeed.Parser, feedURL string) (*gofeed.Feed, error) {
 	client := http.Client{}
 	req, err := http.NewRequest("GET", feedURL, nil)
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		return nil, err
 	}
 
 	req.Header.Set("User-Agent", "Golang_Bugwilla")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		
+		return nil, err
 	}
 	if resp != nil {
 		defer resp.Body.Close()
@@ -77,7 +72,7 @@ func TokenReplacer(in []byte) (out []byte) {
 }
 
 
-func decode(feeds []rss, tags map[string]int) map[string][]string {
+func decode(feeds []rss) map[string][]string {
 	output := make(map[string][]string)
 	brackets,_:=regexp.Compile(`[\[\]]*`)
 	links,_ := regexp.Compile(`<a href="([^">]*)">([^<]*)</a>`)
@@ -87,23 +82,13 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 	fp := gofeed.NewParser()
 	today := time.Now()
 	for _, xx := range feeds {
-		duration, ok := tags[xx.Tag]
-		if !ok {
-			duration = 1
-		}
-		if today.YearDay()%duration != 0 {
-			logger("wrong day for", xx.Site)
-			continue
-		}
-		tag := xx.Tag
+		
 		feed, err := request(fp, xx.Site)
 		if err != nil {
 			logger(xx.Site, err)
 			continue
 		}
-		if tag == "" {
-			tag = feed.Title
-		}
+		tag := feed.Title
 		if _, ok := output[tag]; !ok {
 			output[tag] = make([]string, 0)
 		}
@@ -111,9 +96,6 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 		items := len(feed.Items)
 		if (xx.Limit != 0) && (xx.Limit < items) {
 			items = xx.Limit
-		}
-		if items > 0 {
-			output[tag] = append(output[tag], fmt.Sprintf("** %s \n", feed.Title))
 		}
 		for ii := 0; ii < items; ii++ {
 			yy := feed.Items[ii]
@@ -129,7 +111,7 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 			offset++
 			condition := false
 			if useDate {
-				condition = diff <= time.Duration(float64(duration)*1.1*60*60*24)*time.Second
+				condition = diff <= time.Duration(1.1*60*60*24)*time.Second
 			} else {
 				condition = offset < 20
 			}
@@ -138,44 +120,18 @@ func decode(feeds []rss, tags map[string]int) map[string][]string {
 
 			usetext = links.ReplaceAll(usetext, []byte(`[[$1][$2]]`))
 			usetext = quotes.ReplaceAll(usetext, []byte("\n#+BEGIN_QUOTE\n$1\n#+END_QUOTE\n"))
+			if len(usetext)>2000 {
+				usetext = usetext[:1000]
+			}
 			if condition {
+				if len(output[tag]) == 0 {
+					output[tag] = []string{fmt.Sprintf("** %s \n", tag)}
+				}
 			 	output[tag] = append(output[tag], fmt.Sprintf("*** TODO [[%s][%s]]\n%s\n", yy.Link, yy.Title, usetext))
 			}
 		}
 		logger(fmt.Sprintf("Feed %s found %d items", feed.Title, len(output[tag])))
 	}
-	return output
-}
-
-func pullTwitter(ck, cs, ak, as string) []string {
-	config := oauth1.NewConfig(ck, cs)
-	token := oauth1.NewToken(ak, as)
-	httpClient := config.Client(oauth1.NoContext, token)
-
-	// Twitter client
-	client := twitter.NewClient(httpClient)
-
-	// Home Timeline
-	tweets, resp, err := client.Timelines.HomeTimeline(&twitter.HomeTimelineParams{
-		Count: 100,
-	})
-	output := make([]string, 0)
-	if err != nil {
-		logger("twitter error", resp, err)
-		return output
-	}
-	today := time.Now()
-	if len(tweets) > 0 {
-		output = append(output, "** TODO Twitter \n")
-	}
-	for _, tw := range tweets {
-		ctime, err := tw.CreatedAtTime()
-		if (err == nil) && (today.Sub(ctime) < time.Duration(1.1*60*60*24)*time.Second) {
-			link := fmt.Sprintf("[[https://twitter.com/%s/status/%s][%s]]", tw.User.ScreenName, tw.IDStr, tw.User.Name)
-			output = append(output, fmt.Sprintf("*** %s : %s \n\n", link, tw.Text))
-		}
-	}
-	logger(fmt.Sprintf("found %d tweets", len(output)))
 	return output
 }
 
@@ -185,6 +141,7 @@ func parseConfig(loc string) configuration {
 		log.Fatal(err)
 	}
 	defer file.Close()
+	
 	jdec := json.NewDecoder(file)
 	var conf configuration
 	err = jdec.Decode(&conf)
@@ -216,7 +173,7 @@ func emitOrg(kvs map[string][]string, dest string){
 }
 
 func logger(args ...interface{}) {
-	OutLog = OutLog + "*** "+ fmt.Sprint(args) + "\n"
+	OutLog = OutLog + "*** "+ fmt.Sprint(args...) + "\n"
 }
 
 func main() {
@@ -224,12 +181,7 @@ func main() {
 	flag.Parse()
 	logger("starting at", time.Now().String())
 	conf := parseConfig(*config)
-	kvs := decode(conf.Rss, conf.Tags)
-	if conf.TwitterAccessSecret != "" {
-		twitter := pullTwitter(conf.TwitterConsumerKey, conf.TwitterConsumerSecret,
-			conf.TwitterAccessToken, conf.TwitterAccessSecret)
-		kvs["twitter"] = twitter
-	}
+	kvs := decode(conf.Rss)
 	kvs["runlog"] = []string{OutLog}
 	emitOrg(kvs, conf.OutputPath)
 }
