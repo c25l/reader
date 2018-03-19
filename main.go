@@ -9,8 +9,8 @@ import (
 	"os"
 	"regexp"
 	"time"
-	
 
+	"github.com/araddon/dateparse"
 	"github.com/mmcdole/gofeed"
 )
 
@@ -25,7 +25,7 @@ type rss struct {
 
 type configuration struct {
 	OutputPath string
-	Rss                   []rss
+	Rss        []rss
 }
 
 func request(f *gofeed.Parser, feedURL string) (*gofeed.Feed, error) {
@@ -41,7 +41,7 @@ func request(f *gofeed.Parser, feedURL string) (*gofeed.Feed, error) {
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Println(err)
-		
+
 		return nil, err
 	}
 	if resp != nil {
@@ -59,30 +59,29 @@ func request(f *gofeed.Parser, feedURL string) (*gofeed.Feed, error) {
 }
 
 func TokenReplacer(in []byte) (out []byte) {
-	if len(in)<4 {
+	if len(in) < 4 {
 		return
 	}
-	if (in[1] ==  'a') && (in[2] == ' '){
+	if (in[1] == 'a') && (in[2] == ' ') {
 		return in
 	}
-	if (in[1] == '/') && (in[2] == 'a') && (len(in)==4) {
+	if (in[1] == '/') && (in[2] == 'a') && (len(in) == 4) {
 		return in
 	}
-	return 
+	return
 }
-
 
 func decode(feeds []rss) map[string][]string {
 	output := make(map[string][]string)
-	brackets,_:=regexp.Compile(`[\[\]]*`)
-	links,_ := regexp.Compile(`<a href="([^">]*)">([^<]*)</a>`)
-	quotes,_:= regexp.Compile(`<blockquote>(.*)</blockquote>`)
-	tokens,_:= regexp.Compile(`<[^>]*>`)
+	brackets, _ := regexp.Compile(`[\[\]]*`)
+	links, _ := regexp.Compile(`<a href="([^">]*)">([^<]*)</a>`)
+	quotes, _ := regexp.Compile(`<blockquote>(.*)</blockquote>`)
+	tokens, _ := regexp.Compile(`<[^>]*>`)
 
 	fp := gofeed.NewParser()
 	today := time.Now()
 	for _, xx := range feeds {
-		
+
 		feed, err := request(fp, xx.Site)
 		if err != nil {
 			logger(xx.Site, err)
@@ -99,35 +98,29 @@ func decode(feeds []rss) map[string][]string {
 		}
 		for ii := 0; ii < items; ii++ {
 			yy := feed.Items[ii]
-			localTime, err := time.Parse(time.RFC1123, yy.Published)
 			useDate := true
+			localTime, err := dateparse.ParseAny(yy.Published)
 			if err != nil {
-				localTime, err = time.Parse(time.RFC1123Z, yy.Published)
-				if err != nil {
-					useDate = false
-				}
+				useDate = false
 			}
 			diff := today.Sub(localTime)
 			offset++
 			condition := false
 			if useDate {
-				condition = diff <= time.Duration(1.1*60*60*24)*time.Second
+				condition = diff <= time.Duration(1.0*60*60*24)*time.Second
 			} else {
-				condition = offset < 20
+				condition = offset < 2
 			}
 			usetext := brackets.ReplaceAll([]byte(yy.Description), []byte(""))
 			usetext = tokens.ReplaceAllFunc(usetext, TokenReplacer)
 
 			usetext = links.ReplaceAll(usetext, []byte(`[[$1][$2]]`))
 			usetext = quotes.ReplaceAll(usetext, []byte("\n#+BEGIN_QUOTE\n$1\n#+END_QUOTE\n"))
-			if len(usetext)>2000 {
+			if len(usetext) > 2000 {
 				usetext = usetext[:1000]
 			}
 			if condition {
-				if len(output[tag]) == 0 {
-					output[tag] = []string{fmt.Sprintf("** %s \n", tag)}
-				}
-			 	output[tag] = append(output[tag], fmt.Sprintf("*** TODO [[%s][%s]]\n%s\n", yy.Link, yy.Title, usetext))
+				output[tag] = append(output[tag], fmt.Sprintf("** TODO %s - [[%s][%s]]\n%s\n", tag, yy.Link, yy.Title, usetext))
 			}
 		}
 		logger(fmt.Sprintf("Feed %s found %d items", feed.Title, len(output[tag])))
@@ -141,7 +134,7 @@ func parseConfig(loc string) configuration {
 		log.Fatal(err)
 	}
 	defer file.Close()
-	
+
 	jdec := json.NewDecoder(file)
 	var conf configuration
 	err = jdec.Decode(&conf)
@@ -151,18 +144,18 @@ func parseConfig(loc string) configuration {
 	return conf
 }
 
-func emitOrg(kvs map[string][]string, dest string){
+func emitOrg(kvs map[string][]string, dest string) {
 	f, err := os.OpenFile(dest, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
 	now := time.Now()
 	year, month, day := now.Date()
-	dow :=now.Weekday().String()
+	dow := now.Weekday().String()
 	f.Write([]byte(fmt.Sprintf("* %d-%02d-%02d %s\n", year, int(month), day, dow)))
 	for _, x := range kvs {
 		for _, val := range x {
-			if _, err := f.Write([]byte(val)); err !=nil {
+			if _, err := f.Write([]byte(val)); err != nil {
 				log.Fatal(err)
 			}
 		}
@@ -173,7 +166,7 @@ func emitOrg(kvs map[string][]string, dest string){
 }
 
 func logger(args ...interface{}) {
-	OutLog = OutLog + "*** "+ fmt.Sprint(args...) + "\n"
+	OutLog = OutLog + "*** " + fmt.Sprint(args...) + "\n"
 }
 
 func main() {
