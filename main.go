@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"regexp"
 	"time"
 
 	"github.com/araddon/dateparse"
@@ -73,10 +72,6 @@ func TokenReplacer(in []byte) (out []byte) {
 
 func decode(feeds []rss) map[string][]string {
 	output := make(map[string][]string)
-	brackets, _ := regexp.Compile(`[\[\]]*`)
-	links, _ := regexp.Compile(`<a href="([^">]*)">([^<]*)</a>`)
-	quotes, _ := regexp.Compile(`<blockquote>(.*)</blockquote>`)
-	tokens, _ := regexp.Compile(`<[^>]*>`)
 
 	fp := gofeed.NewParser()
 	today := time.Now()
@@ -111,16 +106,9 @@ func decode(feeds []rss) map[string][]string {
 			} else {
 				condition = offset < 2
 			}
-			usetext := brackets.ReplaceAll([]byte(yy.Description), []byte(""))
-			usetext = tokens.ReplaceAllFunc(usetext, TokenReplacer)
 
-			usetext = links.ReplaceAll(usetext, []byte(`[[$1][$2]]`))
-			usetext = quotes.ReplaceAll(usetext, []byte("\n#+BEGIN_QUOTE\n$1\n#+END_QUOTE\n"))
-			if len(usetext) > 2000 {
-				usetext = usetext[:1000]
-			}
 			if condition {
-				output[tag] = append(output[tag], fmt.Sprintf("** TODO %s - [[%s][%s]]\n%s\n", tag, yy.Link, yy.Title, usetext))
+				output[tag] = append(output[tag], fmt.Sprintf("** TODO %s - [[%s][%s]]\n", tag, yy.Link, yy.Title))
 			}
 		}
 		logger(fmt.Sprintf("Feed %s found %d items", feed.Title, len(output[tag])))

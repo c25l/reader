@@ -1,3 +1,5 @@
+I've found that, for the most part, you're better off just using elfeed.
+
 ## Bugwilla
 ...is a small go rss and twitter to org utility with configuration file support.
 
